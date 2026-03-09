@@ -53,6 +53,21 @@
       opacity: 0.95;
     }
 
+    .hud button {
+      border: 0;
+      border-radius: 8px;
+      background: #53d8fb;
+      color: #081022;
+      font-weight: 700;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    .hud button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
     .ok { color: #8bffca; }
     .err { color: #ff9898; white-space: pre-wrap; }
 
@@ -76,7 +91,9 @@
   <div class="hud">
     <h1>Sample VT Model Viewer</h1>
     <p><strong>Model:</strong> <code>/models/sample.vrm</code></p>
-    <p><strong>Controls:</strong> Left-drag rotate, wheel zoom, right-drag pan.</p>
+    <p><strong>Controls:</strong> Mouse moves eyes/head. Drag still rotates camera.</p>
+    <p><button id="micBtn" type="button">Enable Mic Talk</button></p>
+    <p id="micStatus">Mic: off</p>
     <p id="status">Loading model...</p>
   </div>
 

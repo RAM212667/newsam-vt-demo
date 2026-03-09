@@ -5,11 +5,30 @@ import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 
 const app = document.getElementById("app");
 const statusEl = document.getElementById("status");
+const micBtn = document.getElementById("micBtn");
+const micStatusEl = document.getElementById("micStatus");
 
 function fail(message, error) {
   console.error(error || message);
   statusEl.textContent = `Load failed: ${message}`;
   statusEl.className = "err";
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getBone(vrm, boneName) {
+  const humanoid = vrm?.humanoid;
+  if (!humanoid) return null;
+  if (typeof humanoid.getNormalizedBoneNode === "function") {
+    const node = humanoid.getNormalizedBoneNode(boneName);
+    if (node) return node;
+  }
+  if (typeof humanoid.getRawBoneNode === "function") {
+    return humanoid.getRawBoneNode(boneName);
+  }
+  return null;
 }
 
 try {
@@ -46,6 +65,84 @@ try {
   const clock = new THREE.Clock();
   let currentVRM = null;
 
+  let neckBone = null;
+  let headBone = null;
+  let leftEyeBone = null;
+  let rightEyeBone = null;
+  let jawBone = null;
+
+  let neckBaseQ = null;
+  let headBaseQ = null;
+  let leftEyeBaseQ = null;
+  let rightEyeBaseQ = null;
+  let jawBaseQ = null;
+
+  const tempQ = new THREE.Quaternion();
+  const tempEuler = new THREE.Euler(0, 0, 0, "YXZ");
+
+  let lookTargetX = 0;
+  let lookTargetY = 0;
+  let lookCurrentX = 0;
+  let lookCurrentY = 0;
+
+  let mouthOpenTarget = 0;
+  let mouthOpenCurrent = 0;
+
+  let analyser = null;
+  let audioData = null;
+  let audioContext = null;
+
+  function applyLook(node, baseQ, yaw, pitch) {
+    if (!node || !baseQ) return;
+    tempEuler.set(pitch, yaw, 0, "YXZ");
+    tempQ.setFromEuler(tempEuler);
+    node.quaternion.copy(baseQ).multiply(tempQ);
+  }
+
+  async function enableMic() {
+    if (analyser) return;
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      micStatusEl.textContent = "Mic: browser does not support getUserMedia";
+      micStatusEl.className = "err";
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioContext = new window.AudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.75;
+      audioData = new Uint8Array(analyser.fftSize);
+      source.connect(analyser);
+
+      micBtn.disabled = true;
+      micBtn.textContent = "Mic Enabled";
+      micStatusEl.textContent = "Mic: live (mouth moves while you talk)";
+      micStatusEl.className = "ok";
+    } catch (error) {
+      micStatusEl.textContent = "Mic: permission denied or unavailable";
+      micStatusEl.className = "err";
+      console.error(error);
+    }
+  }
+
+  micBtn.addEventListener("click", enableMic);
+
+  window.addEventListener("pointermove", (event) => {
+    const x = (event.clientX / window.innerWidth) * 2 - 1;
+    const y = (event.clientY / window.innerHeight) * 2 - 1;
+    lookTargetX = clamp(x, -1, 1);
+    lookTargetY = clamp(y, -1, 1);
+  });
+
+  window.addEventListener("pointerleave", () => {
+    lookTargetX = 0;
+    lookTargetY = 0;
+  });
+
   const loader = new GLTFLoader();
   loader.register((parser) => new VRMLoaderPlugin(parser));
 
@@ -65,7 +162,19 @@ try {
       scene.add(vrm.scene);
       currentVRM = vrm;
 
-      statusEl.textContent = "Loaded. Model is live and updating each frame.";
+      neckBone = getBone(vrm, "neck");
+      headBone = getBone(vrm, "head");
+      leftEyeBone = getBone(vrm, "leftEye");
+      rightEyeBone = getBone(vrm, "rightEye");
+      jawBone = getBone(vrm, "jaw");
+
+      neckBaseQ = neckBone?.quaternion.clone() || null;
+      headBaseQ = headBone?.quaternion.clone() || null;
+      leftEyeBaseQ = leftEyeBone?.quaternion.clone() || null;
+      rightEyeBaseQ = rightEyeBone?.quaternion.clone() || null;
+      jawBaseQ = jawBone?.quaternion.clone() || null;
+
+      statusEl.textContent = "Loaded. Mouse tracks eyes/head. Enable mic to drive talking.";
       statusEl.className = "ok";
     },
     (progress) => {
@@ -84,13 +193,53 @@ try {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
+  function updateMicMouth() {
+    if (!analyser || !audioData) {
+      mouthOpenTarget = 0;
+      return;
+    }
+
+    analyser.getByteTimeDomainData(audioData);
+
+    let sum = 0;
+    for (let i = 0; i < audioData.length; i += 1) {
+      const v = (audioData[i] - 128) / 128;
+      sum += v * v;
+    }
+
+    const rms = Math.sqrt(sum / audioData.length);
+    mouthOpenTarget = clamp((rms - 0.02) * 10, 0, 1);
+  }
+
   function animate() {
     requestAnimationFrame(animate);
     const delta = clock.getDelta();
 
     if (currentVRM) {
+      lookCurrentX = THREE.MathUtils.lerp(lookCurrentX, lookTargetX, 0.12);
+      lookCurrentY = THREE.MathUtils.lerp(lookCurrentY, lookTargetY, 0.12);
+
+      const headYaw = lookCurrentX * 0.24;
+      const headPitch = -lookCurrentY * 0.12;
+      const neckYaw = lookCurrentX * 0.12;
+      const neckPitch = -lookCurrentY * 0.06;
+      const eyeYaw = lookCurrentX * 0.36;
+      const eyePitch = -lookCurrentY * 0.2;
+
+      applyLook(neckBone, neckBaseQ, neckYaw, neckPitch);
+      applyLook(headBone, headBaseQ, headYaw, headPitch);
+      applyLook(leftEyeBone, leftEyeBaseQ, eyeYaw, eyePitch);
+      applyLook(rightEyeBone, rightEyeBaseQ, eyeYaw, eyePitch);
+
+      updateMicMouth();
+      mouthOpenCurrent = THREE.MathUtils.lerp(mouthOpenCurrent, mouthOpenTarget, 0.35);
+      if (jawBone && jawBaseQ) {
+        tempEuler.set(mouthOpenCurrent * 0.35, 0, 0, "YXZ");
+        tempQ.setFromEuler(tempEuler);
+        jawBone.quaternion.copy(jawBaseQ).multiply(tempQ);
+      }
+
       currentVRM.update(delta);
-      currentVRM.scene.rotation.y += delta * 0.18;
     }
 
     controls.update();
