@@ -32,7 +32,7 @@
       left: 16px;
       top: 16px;
       z-index: 3;
-      max-width: 360px;
+      max-width: 420px;
       background: var(--panel);
       border: 1px solid rgba(255, 255, 255, 0.14);
       border-radius: 10px;
@@ -54,12 +54,22 @@
     }
 
     .ok { color: #8bffca; }
-    .err { color: #ff9898; }
+    .err { color: #ff9898; white-space: pre-wrap; }
 
     @media (max-width: 680px) {
       .hud { max-width: calc(100vw - 24px); left: 12px; top: 12px; }
     }
   </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.2/lib/three-vrm.module.js"
+      }
+    }
+  </script>
 </head>
 <body>
   <div id="app"></div>
