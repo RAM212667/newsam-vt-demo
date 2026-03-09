@@ -67,6 +67,7 @@ try {
 
   const clock = new THREE.Clock();
   const textureLoader = new THREE.TextureLoader();
+  const DEFAULT_SAM_SKIN = "./models/sam-skin.png";
   let currentVRM = null;
 
   let neckBone = null;
@@ -198,6 +199,23 @@ try {
     skinStatusEl.className = "ok";
   }
 
+  function tryLoadDefaultSkin() {
+    skinStatusEl.textContent = "Skin: checking default ./models/sam-skin.png...";
+    skinStatusEl.className = "";
+
+    textureLoader.load(
+      DEFAULT_SAM_SKIN,
+      (texture) => {
+        applySkinTexture(texture);
+      },
+      undefined,
+      () => {
+        skinStatusEl.textContent = "Skin: default not found (add models/sam-skin.png)";
+        skinStatusEl.className = "";
+      }
+    );
+  }
+
   function loadUploadedTexture(file) {
     if (!file) {
       skinStatusEl.textContent = "Skin: choose an image first";
@@ -273,6 +291,7 @@ try {
 
       statusEl.textContent = "Loaded. Mouse tracks eyes/head. Enable mic for lip sync.";
       statusEl.className = "ok";
+      tryLoadDefaultSkin();
     },
     (progress) => {
       if (!progress.total) return;
