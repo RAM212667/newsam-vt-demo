@@ -90,13 +90,41 @@ try {
 
   let analyser = null;
   let audioData = null;
-  let audioContext = null;
 
   function applyLook(node, baseQ, yaw, pitch) {
     if (!node || !baseQ) return;
     tempEuler.set(pitch, yaw, 0, "YXZ");
     tempQ.setFromEuler(tempEuler);
     node.quaternion.copy(baseQ).multiply(tempQ);
+  }
+
+  function setLipExpressions(vrm, open) {
+    const manager = vrm?.expressionManager;
+    if (!manager || typeof manager.setValue !== "function") return false;
+
+    const v = clamp(open, 0, 1);
+    const aa = v;
+    const oh = v * 0.35;
+    const ou = v * 0.2;
+    const ee = v * 0.1;
+    const ih = v * 0.08;
+
+    manager.setValue("aa", aa);
+    manager.setValue("oh", oh);
+    manager.setValue("ou", ou);
+    manager.setValue("ee", ee);
+    manager.setValue("ih", ih);
+    return true;
+  }
+
+  function clearLipExpressions(vrm) {
+    const manager = vrm?.expressionManager;
+    if (!manager || typeof manager.setValue !== "function") return;
+    manager.setValue("aa", 0);
+    manager.setValue("oh", 0);
+    manager.setValue("ou", 0);
+    manager.setValue("ee", 0);
+    manager.setValue("ih", 0);
   }
 
   async function enableMic() {
@@ -109,18 +137,25 @@ try {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioContext = new window.AudioContext();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      const audioContext = new window.AudioContext();
+      await audioContext.resume();
       const source = audioContext.createMediaStreamSource(stream);
       analyser = audioContext.createAnalyser();
       analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.75;
+      analyser.smoothingTimeConstant = 0.8;
       audioData = new Uint8Array(analyser.fftSize);
       source.connect(analyser);
 
       micBtn.disabled = true;
       micBtn.textContent = "Mic Enabled";
-      micStatusEl.textContent = "Mic: live (mouth moves while you talk)";
+      micStatusEl.textContent = "Mic: live lip sync enabled";
       micStatusEl.className = "ok";
     } catch (error) {
       micStatusEl.textContent = "Mic: permission denied or unavailable";
@@ -174,7 +209,7 @@ try {
       rightEyeBaseQ = rightEyeBone?.quaternion.clone() || null;
       jawBaseQ = jawBone?.quaternion.clone() || null;
 
-      statusEl.textContent = "Loaded. Mouse tracks eyes/head. Enable mic to drive talking.";
+      statusEl.textContent = "Loaded. Mouse tracks eyes/head. Enable mic for lip sync.";
       statusEl.className = "ok";
     },
     (progress) => {
@@ -208,7 +243,7 @@ try {
     }
 
     const rms = Math.sqrt(sum / audioData.length);
-    mouthOpenTarget = clamp((rms - 0.02) * 10, 0, 1);
+    mouthOpenTarget = clamp((rms - 0.008) * 22, 0, 1);
   }
 
   function animate() {
@@ -232,11 +267,19 @@ try {
       applyLook(rightEyeBone, rightEyeBaseQ, eyeYaw, eyePitch);
 
       updateMicMouth();
-      mouthOpenCurrent = THREE.MathUtils.lerp(mouthOpenCurrent, mouthOpenTarget, 0.35);
-      if (jawBone && jawBaseQ) {
+      mouthOpenCurrent = THREE.MathUtils.lerp(mouthOpenCurrent, mouthOpenTarget, 0.4);
+
+      const usedExpressions = setLipExpressions(currentVRM, mouthOpenCurrent);
+      if (!usedExpressions && jawBone && jawBaseQ) {
         tempEuler.set(mouthOpenCurrent * 0.35, 0, 0, "YXZ");
         tempQ.setFromEuler(tempEuler);
         jawBone.quaternion.copy(jawBaseQ).multiply(tempQ);
+      } else if (jawBone && jawBaseQ) {
+        jawBone.quaternion.copy(jawBaseQ);
+      }
+
+      if (mouthOpenCurrent < 0.001) {
+        clearLipExpressions(currentVRM);
       }
 
       currentVRM.update(delta);
@@ -250,3 +293,4 @@ try {
 } catch (error) {
   fail("Module initialization error. Check browser console.", error);
 }
+
