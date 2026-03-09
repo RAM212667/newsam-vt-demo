@@ -7,6 +7,9 @@ const app = document.getElementById("app");
 const statusEl = document.getElementById("status");
 const micBtn = document.getElementById("micBtn");
 const micStatusEl = document.getElementById("micStatus");
+const skinUploadEl = document.getElementById("skinUpload");
+const skinBtn = document.getElementById("skinBtn");
+const skinStatusEl = document.getElementById("skinStatus");
 
 function fail(message, error) {
   console.error(error || message);
@@ -63,6 +66,7 @@ try {
   scene.add(floor);
 
   const clock = new THREE.Clock();
+  const textureLoader = new THREE.TextureLoader();
   let currentVRM = null;
 
   let neckBone = null;
@@ -103,17 +107,11 @@ try {
     if (!manager || typeof manager.setValue !== "function") return false;
 
     const v = clamp(open, 0, 1);
-    const aa = v;
-    const oh = v * 0.35;
-    const ou = v * 0.2;
-    const ee = v * 0.1;
-    const ih = v * 0.08;
-
-    manager.setValue("aa", aa);
-    manager.setValue("oh", oh);
-    manager.setValue("ou", ou);
-    manager.setValue("ee", ee);
-    manager.setValue("ih", ih);
+    manager.setValue("aa", v);
+    manager.setValue("oh", v * 0.35);
+    manager.setValue("ou", v * 0.2);
+    manager.setValue("ee", v * 0.1);
+    manager.setValue("ih", v * 0.08);
     return true;
   }
 
@@ -164,7 +162,71 @@ try {
     }
   }
 
+  function applySkinTexture(texture) {
+    if (!currentVRM) {
+      skinStatusEl.textContent = "Skin: load model first";
+      skinStatusEl.className = "err";
+      return;
+    }
+
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.flipY = false;
+    texture.needsUpdate = true;
+
+    let updated = 0;
+
+    currentVRM.scene.traverse((obj) => {
+      if (!obj.isMesh || !obj.material) return;
+      const name = (obj.name || "").toLowerCase();
+      if (name.includes("eye") || name.includes("iris") || name.includes("pupil")) return;
+
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      const nextMats = mats.map((mat) => {
+        if (!mat || !("map" in mat)) return mat;
+        const cloned = mat.clone();
+        cloned.map = texture;
+        cloned.color = new THREE.Color(0xffffff);
+        cloned.needsUpdate = true;
+        updated += 1;
+        return cloned;
+      });
+
+      obj.material = Array.isArray(obj.material) ? nextMats : nextMats[0];
+    });
+
+    skinStatusEl.textContent = `Skin: SAM image applied to ${updated} material slots`;
+    skinStatusEl.className = "ok";
+  }
+
+  function loadUploadedTexture(file) {
+    if (!file) {
+      skinStatusEl.textContent = "Skin: choose an image first";
+      skinStatusEl.className = "err";
+      return;
+    }
+
+    const blobUrl = URL.createObjectURL(file);
+    skinStatusEl.textContent = "Skin: applying image...";
+    skinStatusEl.className = "";
+
+    textureLoader.load(
+      blobUrl,
+      (texture) => {
+        applySkinTexture(texture);
+        URL.revokeObjectURL(blobUrl);
+      },
+      undefined,
+      (error) => {
+        console.error(error);
+        URL.revokeObjectURL(blobUrl);
+        skinStatusEl.textContent = "Skin: failed to load image";
+        skinStatusEl.className = "err";
+      }
+    );
+  }
+
   micBtn.addEventListener("click", enableMic);
+  skinBtn.addEventListener("click", () => loadUploadedTexture(skinUploadEl.files?.[0]));
 
   window.addEventListener("pointermove", (event) => {
     const x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -293,4 +355,3 @@ try {
 } catch (error) {
   fail("Module initialization error. Check browser console.", error);
 }
-
